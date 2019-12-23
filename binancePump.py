@@ -13,13 +13,19 @@ from tqdm import tqdm as tqdm
 
 import os
 import joblib
+import operator
+from termcolor import colored
 
 from binance.client import Client
 from binance.enums import *
 from binance.websockets import BinanceSocketManager
 
 from pricechange import *
-import operator
+
+min_perc = 0.01
+price_changes = []
+
+last_symbol = "X"
 
 def binanceDataFrame(klines):
     df = pd.DataFrame(klines.reshape(-1,12),dtype=float, columns = ('Open Time',
@@ -58,7 +64,6 @@ def date_to_milliseconds(date_str):
     # return the difference in time
     return int((d - epoch).total_seconds() * 1000.0)
 
-
 def interval_to_milliseconds(interval):
     """Convert a Binance interval string to milliseconds
     :param interval: Binance interval string 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w
@@ -83,7 +88,6 @@ def interval_to_milliseconds(interval):
         except ValueError:
             pass
     return ms
-
 
 def get_historical_klines(symbol, interval, start_str, end_str=None):
     """Get Historical Klines from Binance
@@ -157,21 +161,6 @@ def get_historical_klines(symbol, interval, start_str, end_str=None):
 
     return output_data
 
-api_config = {}
-with open('api_config.json') as json_data:
-    api_config = json.load(json_data)
-    json_data.close()    
-
-client = Client(api_config['api_key'], api_config['api_secret'])
-prices = client.get_all_tickers()
-pairs = list(pd.DataFrame(prices)['symbol'].values)
-pairs = [pair for pair in pairs if 'BTC' in pair]
-# print(pairs)
-
-price_changes = []
-
-last_symbol = "X"
-
 def process_message(tickers):
     # print("stream: {} data: {}".format(msg['stream'], msg['data']))
     # print("Len {}".format(len(msg)))
@@ -179,29 +168,98 @@ def process_message(tickers):
     
     for ticker in tickers:
         symbol = ticker['s']
-        price = float(ticker['c'])        
+        price = float(ticker['c'])
+        total_trades = int(ticker['n'])
+        open = float(ticker['o'])
+        volume = float(ticker['v'])
+        event_time = dt.datetime.fromtimestamp(int(ticker['E'])/1000)
         if len(price_changes) > 0:
             price_change = filter(lambda item: item.symbol == symbol, price_changes)
             price_change = list(price_change)
-            if (len(price_change)>0):
+            if (len(price_change) > 0):
                 price_change = price_change[0]
-                # if price_change.price != price:
+                price_change.event_time = event_time
                 price_change.prev_price = price_change.price
+                price_change.prev_volume = price_change.volume
                 price_change.price = price
+                price_change.total_trades = total_trades
+                price_change.open = open
+                price_change.volume = volume
+                price_change.isPrinted = False
             else:
-                price_changes.append(PriceChange(symbol, price, price))
+                price_changes.append(PriceChange(symbol, price, price, total_trades, open, volume, False, event_time, volume))
         else:
-            price_changes.append(PriceChange(symbol, price, price))
+            price_changes.append(PriceChange(symbol, price, price, total_trades, open, volume, False, event_time, volume))
 
     price_changes.sort(key=operator.attrgetter('price_change_perc'), reverse=True)
-    # if price_changes[0].symbol != last_symbol:
-        # last_symbol = price_changes[0].symbol
-    print("Symbol:{} Change:{}%".format(price_changes[0].symbol, price_changes[0].price_change_perc))                
-        
-bm = BinanceSocketManager(client)
-conn_key = bm.start_ticker_socket(process_message)
-bm.start()
-input("Press Enter to continue...")
-bm.stop_socket(conn_key)
-bm.close()
-print('Socket Closed')
+    #print(len(price_changes))
+    
+    for price_change in price_changes:
+        console_color = 'green'
+        if price_change.price_change_perc < 0:
+            console_color = 'red'
+
+        if (not price_change.isPrinted and abs(price_change.price_change_perc) > min_perc and price_change.volume_change_perc > min_perc):
+            price_change.isPrinted = True
+            print(colored("Time:{} \t Sym:{} \t Ch:{}% \t VCh:{}% \t TT:{} \t PP:{} \t P:{} \t O:{} \t V:{}".format(
+                     price_change.event_time, 
+                     price_change.symbol, 
+                     "{0:2.2f}".format(price_change.price_change_perc), 
+                     "{0:2.2f}".format(price_change.volume_change_perc),
+                     price_change.total_trades,                
+                     price_change.prev_price, 
+                     price_change.price, 
+                     price_change.open,
+                     round(price_change.volume)), console_color))        
+    
+    # if ((price_changes[0].price_change_perc > min_perc) and not price_changes[0].isPrinted):
+        # price_changes[0].isPrinted = True
+        # print("Time:{}\tSym:{}\tCh:{}%\tT:{}\tPP:{}\tP:{}\tO:{}\tV:{}\t".format(
+                # price_changes[0].event_time, 
+                # price_changes[0].symbol, 
+                # "{0:2.2f}".format(price_changes[0].price_change_perc), 
+                # price_changes[0].total_trades,                
+                # price_changes[0].prev_price, 
+                # price_changes[0].price, 
+                # price_changes[0].open,
+                # round(price_changes[0].volume)
+                # ))
+
+
+    # last_index = len(price_changes)-1
+    # if ((price_changes[last_index].price_change_perc < -min_perc) and not price_changes[last_index].isPrinted):
+        # price_changes[last_index].isPrinted = True
+        # print(colored("Time:{}\tSym:{}\tCh:{}%\tT:{}\tPP:{}\tP:{}\tO:{}\tV:{}\t".format(
+                # price_changes[last_index].event_time, 
+                # price_changes[last_index].symbol, 
+                # "{0:2.2f}".format(price_changes[last_index].price_change_perc), 
+                # price_changes[last_index].total_trades,                
+                # price_changes[last_index].prev_price, 
+                # price_changes[last_index].price, 
+                # price_changes[last_index].open,
+                # round(price_changes[last_index].volume)
+                # ),'red'))
+
+def main():
+    api_config = {}
+    with open('api_config.json') as json_data:
+        api_config = json.load(json_data)
+        json_data.close()    
+
+    client = Client(api_config['api_key'], api_config['api_secret'])
+    prices = client.get_all_tickers()
+    pairs = list(pd.DataFrame(prices)['symbol'].values)
+    pairs = [pair for pair in pairs if 'BTC' in pair]
+    # print(pairs)    
+          
+    bm = BinanceSocketManager(client)
+    conn_key = bm.start_ticker_socket(process_message)
+    bm.start()
+    input("Press Enter to continue...")
+    bm.stop_socket(conn_key)
+    bm.close()
+    print('Socket Closed')
+    return
+    
+if __name__ == '__main__':
+    main()
