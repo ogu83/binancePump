@@ -1,3 +1,7 @@
+import datetime as dt
+from datetime import datetime, timedelta
+import time
+
 class PriceChange:
     def __init__(self, 
                 symbol, 
