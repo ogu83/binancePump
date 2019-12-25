@@ -49,8 +49,10 @@ class PriceChange:
 
     @property
     def price_change_perc(self):
-        return self.price_change / self.prev_price * 100
-
+        if (self.prev_price == 0 or self.price == 0):
+            return 0
+        else:
+            return self.price_change / self.prev_price * 100
 
     def IsPump(self,lim_perc):
         return self.price_change_perc() >= lim_perc
