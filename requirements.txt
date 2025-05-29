@@ -1,0 +1,5 @@
+termcolor
+python-binance
+numpy
+pandas
+joblib
