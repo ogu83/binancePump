@@ -16,11 +16,11 @@ from typing import Dict, List
 show_only_pair = "USDT" #Select nothing for all, only selected currency will be shown
 show_limit = 1      #minimum top query limit
 min_perc = 0.05     #min percentage change
-price_changes = []
+price_changes: List[PriceChange] = []
 price_groups: Dict[str, PriceGroup] = {}
 last_symbol = "X"
 chat_ids = []
-twm = {}
+twm: ThreadedWebsocketManager
 
 def get_price_groups() -> List[PriceGroup]:
     """
@@ -53,7 +53,7 @@ def process_message(tickers):
                 price_change.total_trades = total_trades
                 price_change.open = open
                 price_change.volume = volume
-                price_change.isPrinted = False
+                price_change.is_printed = False
             else:
                 price_changes.append(PriceChange(symbol, price, price, total_trades, open, volume, False, event_time, volume))
         else:
@@ -62,11 +62,11 @@ def process_message(tickers):
     price_changes.sort(key=operator.attrgetter('price_change_perc'), reverse=True)
     
     for price_change in price_changes:
-        if (not price_change.isPrinted 
+        if (not price_change.is_printed 
             and abs(price_change.price_change_perc) > min_perc 
             and price_change.volume_change_perc > min_perc):
 
-            price_change.isPrinted = True 
+            price_change.is_printed = True 
 
             if not price_change.symbol in price_groups:
                 price_groups[price_change.symbol] = PriceGroup(price_change.symbol,                                                                
@@ -76,7 +76,7 @@ def process_message(tickers):
                                                             price_change.volume_change_perc,                                                                
                                                             price_change.price,                                                                                                                             
                                                             price_change.event_time,
-                                                            price_change.open,
+                                                            price_change.open_price,
                                                             price_change.volume,
                                                             False,
                                                             )
